@@ -3,22 +3,21 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getOrCreateCalendar, getEvents, createClassEvent } from '../../services/calendarApi';
 import type { ClassEvent } from '../../types';
 import ClassForm from '../forms/ClassForm';
-import { format, startOfWeek, endOfWeek, addDays, isSameDay } from 'date-fns';
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { format, startOfWeek, addDays, isSameDay, startOfDay } from 'date-fns';
+import { ja } from 'date-fns/locale';
+import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon } from 'lucide-react';
+import { useSettings } from '../../contexts/SettingsContext';
 
 const ScheduleGrid: React.FC = () => {
   const { accessToken } = useAuth();
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const { settings } = useSettings();
+  const weekStartPreference: 0 | 1 = settings.weekStart === 'monday' ? 1 : 0;
+  const today = startOfDay(new Date());
+  const [viewStartDate, setViewStartDate] = useState(today);
   const [events, setEvents] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [calendarId, setCalendarId] = useState<string | null>(null);
-  const [weekStartPreference, setWeekStartPreference] = useState<0 | 1>(0); // 0: Sunday, 1: Monday
-
-  useEffect(() => {
-    const saved = localStorage.getItem('weekStart');
-    setWeekStartPreference(saved === 'monday' ? 1 : 0);
-  }, []);
 
   const fetchSchedule = async () => {
     if (!accessToken) return;
@@ -27,8 +26,8 @@ const ScheduleGrid: React.FC = () => {
       const calId = calendarId || await getOrCreateCalendar(accessToken);
       if (!calendarId) setCalendarId(calId);
 
-      const start = startOfWeek(currentDate, { weekStartsOn: weekStartPreference });
-      const end = endOfWeek(currentDate, { weekStartsOn: weekStartPreference });
+      const start = viewStartDate;
+      const end = addDays(viewStartDate, 7);
       
       const fetchedEvents = await getEvents(accessToken, calId, start, end);
       setEvents(fetchedEvents || []);
@@ -41,7 +40,7 @@ const ScheduleGrid: React.FC = () => {
 
   useEffect(() => {
     fetchSchedule();
-  }, [currentDate, accessToken, weekStartPreference]);
+  }, [viewStartDate, accessToken, weekStartPreference]);
 
   const handleAddClass = async (eventData: ClassEvent) => {
     if (!accessToken || !calendarId) return;
@@ -54,20 +53,57 @@ const ScheduleGrid: React.FC = () => {
     }
   };
 
-  const start = startOfWeek(currentDate, { weekStartsOn: weekStartPreference });
-  const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(start, i));
+  const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(viewStartDate, i));
+
+  const handlePrev = () => {
+    const w0 = startOfWeek(today, { weekStartsOn: weekStartPreference });
+    const w1 = addDays(w0, 7);
+
+    if (isSameDay(viewStartDate, w1) && !isSameDay(w0, today)) {
+      setViewStartDate(today);
+    } else if (isSameDay(viewStartDate, today) && !isSameDay(w0, today)) {
+      setViewStartDate(w0);
+    } else {
+      setViewStartDate(addDays(viewStartDate, -7));
+    }
+  };
+
+  const handleNext = () => {
+    const w0 = startOfWeek(today, { weekStartsOn: weekStartPreference });
+    const w1 = addDays(w0, 7);
+
+    if (isSameDay(viewStartDate, w0) && !isSameDay(w0, today)) {
+      setViewStartDate(today);
+    } else if (isSameDay(viewStartDate, today) && !isSameDay(w0, today)) {
+      setViewStartDate(w1);
+    } else {
+      setViewStartDate(addDays(viewStartDate, 7));
+    }
+  };
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-        <div className="flex items-center gap-4">
-          <button onClick={() => setCurrentDate(addDays(currentDate, -7))} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 focus-ring" aria-label="先週">
+        <div className="flex items-center gap-2 sm:gap-4">
+          <button onClick={handlePrev} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 focus-ring" aria-label="先週">
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <span className="font-medium text-lg">
-            {format(start, 'MMM d')} - {format(addDays(start, 6), 'MMM d, yyyy')}
-          </span>
-          <button onClick={() => setCurrentDate(addDays(currentDate, 7))} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 focus-ring" aria-label="来週">
+          
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-base sm:text-lg whitespace-nowrap">
+              {format(viewStartDate, 'yyyy年M月d日', { locale: ja })} - {format(addDays(viewStartDate, 6), 'M月d日', { locale: ja })}
+            </span>
+            <button 
+              onClick={() => setViewStartDate(today)}
+              className="ml-2 flex items-center gap-1 px-3 py-1 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors focus-ring"
+              title="今日から1週間"
+            >
+              <CalendarIcon className="w-3.5 h-3.5" />
+              <span>今日</span>
+            </button>
+          </div>
+
+          <button onClick={handleNext} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 focus-ring" aria-label="来週">
             <ChevronRight className="w-5 h-5" />
           </button>
         </div>
@@ -88,7 +124,7 @@ const ScheduleGrid: React.FC = () => {
             </div>
             {weekDays.map(day => (
               <div key={day.toString()} className="p-3 text-center border-r last:border-r-0 border-gray-200 dark:border-gray-800">
-                <div className="text-xs text-gray-500 uppercase">{format(day, 'EEE')}</div>
+                <div className="text-xs text-gray-500 uppercase">{format(day, 'E', { locale: ja })}</div>
                 <div className={`text-lg ${isSameDay(day, new Date()) ? 'text-[var(--accent-color)] font-bold' : 'font-medium'}`}>
                   {format(day, 'd')}
                 </div>

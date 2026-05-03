@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { ClassEvent } from '../../types';
 import { X } from 'lucide-react';
+import { useSettings } from '../../contexts/SettingsContext';
 
 interface ClassFormProps {
   onClose: () => void;
@@ -9,24 +10,68 @@ interface ClassFormProps {
 }
 
 const ClassForm: React.FC<ClassFormProps> = ({ onClose, onSubmit, initialData }) => {
+  const { settings } = useSettings();
+  const periods = settings.periods;
+
   const [formData, setFormData] = useState<Partial<ClassEvent>>(initialData || {
     subject: '',
-    startTime: '09:00',
-    endTime: '10:30',
+    startTime: periods[0]?.startTime || '09:00',
+    endTime: periods[0]?.endTime || '10:30',
     location: '',
     teacher: '',
     notes: '',
     startDate: new Date().toISOString().split('T')[0],
   });
 
+  // 'custom' or period id as string e.g. '1'
+  const [selectedPeriod, setSelectedPeriod] = useState<string>(() => {
+    if (!initialData?.startTime) return periods[0] ? String(periods[0].id) : 'custom';
+    const matched = periods.find(
+      p => p.startTime === initialData.startTime && p.endTime === initialData.endTime
+    );
+    return matched ? String(matched.id) : 'custom';
+  });
+
+  const [isRepeating, setIsRepeating] = useState<boolean>(() => !!(initialData?.recurrenceRule));
+  const [repeatInterval, setRepeatInterval] = useState<number>(() => {
+    if (initialData?.recurrenceRule) {
+      const match = initialData.recurrenceRule.match(/INTERVAL=(\d+)/);
+      return match ? parseInt(match[1], 10) : 1;
+    }
+    return 1;
+  });
+
+  // When period dropdown changes, update time fields
+  useEffect(() => {
+    if (selectedPeriod !== 'custom') {
+      const period = periods.find(p => String(p.id) === selectedPeriod);
+      if (period) {
+        setFormData(prev => ({ ...prev, startTime: period.startTime, endTime: period.endTime }));
+      }
+    }
+  }, [selectedPeriod, periods]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    // If user manually edits time, switch to custom
+    if (name === 'startTime' || name === 'endTime') {
+      setSelectedPeriod('custom');
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.subject || !formData.startTime || !formData.endTime || !formData.startDate) return;
-    onSubmit(formData as ClassEvent);
+
+    const finalData = { ...formData };
+    if (isRepeating) {
+      finalData.recurrenceRule = `FREQ=WEEKLY${repeatInterval > 1 ? `;INTERVAL=${repeatInterval}` : ''}`;
+    } else {
+      finalData.recurrenceRule = undefined;
+    }
+
+    onSubmit(finalData as ClassEvent);
   };
 
   return (
@@ -43,26 +88,89 @@ const ClassForm: React.FC<ClassFormProps> = ({ onClose, onSubmit, initialData })
             <label className="block text-sm font-medium mb-1">科目名 *</label>
             <input required type="text" name="subject" value={formData.subject} onChange={handleChange} className="w-full border rounded-md p-2 dark:bg-gray-800 dark:border-gray-700 focus-ring" />
           </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">開始日 *</label>
               <input required type="date" name="startDate" value={formData.startDate} onChange={handleChange} className="w-full border rounded-md p-2 dark:bg-gray-800 dark:border-gray-700 focus-ring" />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">繰り返し設定 (RRULE)</label>
-              <input type="text" name="recurrenceRule" placeholder="FREQ=WEEKLY" value={formData.recurrenceRule || ''} onChange={handleChange} className="w-full border rounded-md p-2 dark:bg-gray-800 dark:border-gray-700 focus-ring" />
+            <div className="flex flex-col gap-2">
+              <label className="block text-sm font-medium">繰り返し</label>
+              <div className="flex items-center gap-3 mt-1">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isRepeating}
+                    onChange={(e) => setIsRepeating(e.target.checked)}
+                    className="rounded border-gray-300 text-[var(--accent-color)] focus:ring-[var(--accent-color)]"
+                  />
+                  <span>毎週繰り返す</span>
+                </label>
+                {isRepeating && (
+                  <div className="flex items-center gap-1 text-sm">
+                    <input
+                      type="number"
+                      min="1"
+                      max="52"
+                      value={repeatInterval}
+                      onChange={(e) => setRepeatInterval(parseInt(e.target.value) || 1)}
+                      className="w-16 border rounded-md p-1 dark:bg-gray-800 dark:border-gray-700 focus-ring text-center"
+                    />
+                    <span>週間ごと</span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
+
+          {/* Period selector */}
+          <div>
+            <label className="block text-sm font-medium mb-1">時限</label>
+            <select
+              value={selectedPeriod}
+              onChange={(e) => setSelectedPeriod(e.target.value)}
+              className="w-full border rounded-md p-2 dark:bg-gray-800 dark:border-gray-700 focus-ring"
+            >
+              {periods.map(p => (
+                <option key={p.id} value={String(p.id)}>
+                  {p.label}（{p.startTime}〜{p.endTime}）
+                </option>
+              ))}
+              <option value="custom">カスタム</option>
+            </select>
+          </div>
+
+          {/* Time fields shown when custom or as a read-only reference */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">開始時間 *</label>
-              <input required type="time" name="startTime" value={formData.startTime} onChange={handleChange} className="w-full border rounded-md p-2 dark:bg-gray-800 dark:border-gray-700 focus-ring" />
+              <input
+                required
+                type="time"
+                name="startTime"
+                value={formData.startTime}
+                onChange={handleChange}
+                className={`w-full border rounded-md p-2 dark:bg-gray-800 dark:border-gray-700 focus-ring ${selectedPeriod !== 'custom' ? 'opacity-60' : ''}`}
+              />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">終了時間 *</label>
-              <input required type="time" name="endTime" value={formData.endTime} onChange={handleChange} className="w-full border rounded-md p-2 dark:bg-gray-800 dark:border-gray-700 focus-ring" />
+              <input
+                required
+                type="time"
+                name="endTime"
+                value={formData.endTime}
+                onChange={handleChange}
+                className={`w-full border rounded-md p-2 dark:bg-gray-800 dark:border-gray-700 focus-ring ${selectedPeriod !== 'custom' ? 'opacity-60' : ''}`}
+              />
             </div>
           </div>
+          {selectedPeriod !== 'custom' && (
+            <p className="text-xs text-gray-400 -mt-2">
+              時刻を変更すると自動的に「カスタム」に切り替わります。
+            </p>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">教室 / 場所</label>
