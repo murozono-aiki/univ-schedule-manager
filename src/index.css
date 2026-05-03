@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface-light: #ffffff;
+  --color-surface-dark: #1F2937;
+  --color-bg-light: #F9FAFB;
+  --color-bg-dark: #111827;
+  --color-accent-light: #2563EB;
+  --color-accent-dark: #3B82F6;
+  --color-text-light: #111827;
+  --color-text-dark: #F9FAFB;
+}
+
+@layer base {
+  :root {
+    --bg-color: var(--color-bg-light);
+    --surface-color: var(--color-surface-light);
+    --text-color: var(--color-text-light);
+    --accent-color: var(--color-accent-light);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg-color: var(--color-bg-dark);
+      --surface-color: var(--color-surface-dark);
+      --text-color: var(--color-text-dark);
+      --accent-color: var(--color-accent-dark);
+    }
+  }
+
+  body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    @apply transition-colors duration-200;
+  }
+}
+
+@layer utilities {
+  .focus-ring {
+    @apply focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-color)];
+  }
+}
